@@ -2,12 +2,12 @@ package wdltool
 
 import java.nio.file.Paths
 
-import wdl4s.formatter.{AnsiSyntaxHighlighter, HtmlSyntaxHighlighter, SyntaxFormatter}
-import wdl4s._
+import wdl4s.wdl.formatter.{AnsiSyntaxHighlighter, HtmlSyntaxHighlighter, SyntaxFormatter}
+import wdl4s.wdl._
 import spray.json._
+import wdltool.graph.{GraphPrint, WomGraphPrint}
 
-
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 object Main extends App {
   sealed trait Termination {
@@ -35,6 +35,7 @@ object Main extends App {
       case Some(x) if x == Actions.Inputs => inputs(args.tail)
       case Some(x) if x == Actions.Parse => parse(args.tail)
       case Some(x) if x == Actions.Graph => graph(args.tail)
+      case Some(x) if x == Actions.Womgraph => womGraph(args.tail)
       case _ => BadUsageTermination
     }
   }
@@ -57,7 +58,7 @@ object Main extends App {
   def inputs(args: Seq[String]): Termination = {
     continueIf(args.length == 1) {
       loadWdl(args.head) { namespace =>
-        import wdl4s.types.WdlTypeJsonFormatter._
+        import wdl4s.wdl.types.WdlTypeJsonFormatter._
         val msg = namespace match {
           case x: WdlNamespaceWithWorkflow => x.workflow.inputs.toJson.prettyPrint
           case _ => "WDL does not have a local workflow"
@@ -75,16 +76,33 @@ object Main extends App {
   }
 
   def graph(args: Seq[String]): Termination = {
-    continueIf(args.length == 1 || (args.length == 2 && args.head.equals("--all"))) {
+    continueIf(args.length == 1) {
 
-      val (file, allNodesMode) =
-        if (args.size == 1) (args.head, false)
-        else (args(1), true)
+      val file = args.head
 
-      val workflowDigraph = GraphPrint.generateWorkflowDigraph(file, allNodesMode)
+      val workflowDigraph = GraphPrint.generateWorkflowDigraph(file)
 
       val result = s"""|digraph ${workflowDigraph.workflowName} {
-                       |  ${workflowDigraph.digraph.mkString(System.lineSeparator + "  ")}
+                       |  compound=true;
+                       |  ${workflowDigraph.digraph.links.mkString(System.lineSeparator + "  ")}
+                       |  ${workflowDigraph.digraph.nodes.mkString(System.lineSeparator + "  ")}
+                       |}
+                       |"""
+      SuccessfulTermination(result.stripMargin)
+    }
+  }
+
+  def womGraph(args: Seq[String]): Termination = {
+    continueIf(args.nonEmpty) {
+
+      val (mainFile, auxFiles) = (args.head, args.tail)
+
+      val workflowDigraph = WomGraphPrint.generateWorkflowDigraph(mainFile, auxFiles)
+
+      val result = s"""|digraph ${workflowDigraph.workflowName} {
+                       |  compound=true;
+                       |  ${workflowDigraph.digraph.links.mkString(System.lineSeparator + "  ")}
+                       |  ${workflowDigraph.digraph.nodes.mkString(System.lineSeparator + "  ")}
                        |}
                        |"""
       SuccessfulTermination(result.stripMargin)
@@ -107,7 +125,7 @@ object Main extends App {
   } yield action
 
   object Actions extends Enumeration {
-    val Parse, Validate, Highlight, Inputs, Graph = Value
+    val Parse, Validate, Highlight, Inputs, Graph, Womgraph = Value
   }
 
   val UsageMessage = """
@@ -139,13 +157,20 @@ object Main extends App {
                        |  otherwise.  Note that higher-level AST checks are not done
                        |  via this sub-command and the 'validate' subcommand should
                        |  be used for full validation.
-                       |graph [--all] <WDL file>
+                       |
+                       |graph <WDL file>
                        |
                        |  Reads a WDL file against the grammar and prints out a
                        |  .dot of the DAG if it is valid, and a syntax error
                        |  otherwise.
-                       |  Use [--all] to show all graph nodes in the WDL spec,
-                       |  even the non-executable nodes.
+                       |
+                       |womgraph <WDL or CWL file> [ancillary files]
+                       |
+                       |  Reads a WDL or CWL file from the first argument and
+                       |  converts it to a WOM representation then prints out a graph
+                       |  of the WOM produced.
+                       |  Any imported files can be supplied as subsequent arguments.
+                       |
                      """.stripMargin
 
   val termination = dispatchCommand(args)
@@ -156,5 +181,5 @@ object Main extends App {
     case BadUsageTermination => Console.err.println(UsageMessage)
   }
 
-  termination.returnCode
+  sys.exit(termination.returnCode)
 }

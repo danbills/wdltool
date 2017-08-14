@@ -8,11 +8,11 @@ organization := "org.broadinstitute"
 
 scalaVersion := "2.12.1"
 
-val wdl4sV = "0.13"
+val wdl4sV = "0.14"
 
 lazy val versionSettings = Seq(
   // Upcoming release, or current if we're on the master branch
-  git.baseVersion := "0.13",
+  git.baseVersion := "0.14",
 
   // Shorten the git commit hash
   git.gitHeadCommit := git.gitHeadCommit.value map { _.take(7) },
@@ -35,11 +35,28 @@ resolvers ++= Seq(
   "Broad Artifactory Snapshots" at "https://broadinstitute.jfrog.io/broadinstitute/libs-snapshot/"
 )
 
+lazy val catsDependencies = List(
+  "org.typelevel" %% "cats" % "0.9.0",
+  "org.typelevel" %% "kittens" % "1.0.0-M10",
+  "com.github.benhutchison" %% "mouse" % "0.9"
+) map (_
+  /*
+  Exclude test framework cats-laws and its transitive dependency scalacheck.
+  If sbt detects scalacheck, it tries to run it.
+  Explicitly excluding the two problematic artifacts instead of including the three (or four?).
+  https://github.com/typelevel/cats/tree/v0.7.2#getting-started
+  Re "_2.12", see also: https://github.com/sbt/sbt/issues/1518
+   */
+  exclude("org.typelevel", "cats-laws_2.12")
+  exclude("org.typelevel", "cats-kernel-laws_2.12")
+  )
+
 libraryDependencies ++= Seq(
-  "org.broadinstitute" %% "wdl4s" % wdl4sV,
+  "org.broadinstitute" %% "wdl4s-wdl" % wdl4sV,
+  "org.broadinstitute" %% "wdl4s-cwl" % wdl4sV,
   //---------- Test libraries -------------------//
   "org.scalatest" %% "scalatest" % "3.0.1" % Test
-)
+) ++ catsDependencies
 
 val customMergeStrategy: String => MergeStrategy = {
   case x if Assembly.isConfigFile(x) =>
